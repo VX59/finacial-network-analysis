@@ -6,6 +6,12 @@ from tqdm import tqdm
 from joblib import Parallel, delayed
 import os
 
+for filename in os.listdir("snapshots/"):
+    file_path = os.path.join("snapshots/", filename)
+    
+    if os.path.isfile(file_path):
+        os.remove(file_path)
+
 adj_close_prices = dict(np.load("stock_item_map_small.npz", allow_pickle=True))
 
 key_enum = list(enumerate(adj_close_prices))

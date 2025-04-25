@@ -5,13 +5,13 @@ import random
 
 stocks_item_map = {}   #   (name, pd frame)
 stocks_path = r"archive/stocks/"
-n = 100
+n = 250
 
 def map_market_item(csv_name:str, market_map:dict,  path):
     csv_path = path + csv_name
     item_name = csv_name[:-4]
 
-    market_days = 1000
+    market_days = 400
     csv_data = pd.read_csv(csv_path)
     length = len(csv_data)
 
