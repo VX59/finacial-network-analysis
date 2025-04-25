@@ -4,59 +4,56 @@ import networkx as nx
 from itertools import combinations
 from tqdm import tqdm
 from joblib import Parallel, delayed
+import os
 
-open_prices = dict(np.load("stock_item_map_small.npz", allow_pickle=True))
+adj_close_prices = dict(np.load("stock_item_map_small.npz", allow_pickle=True))
 
-key_enum = list(enumerate(open_prices))
+key_enum = list(enumerate(adj_close_prices))
 key_enum[0]
 
-n = len(open_prices)
+n = len(adj_close_prices)
 pairs = list(combinations(range(n),2))
 
 pairwise_correlations = []
 
-def pearson_correlation_window(i,j):
-    X = open_prices[key_enum[i][1]]
-    Y = open_prices[key_enum[j][1]]
-    XYPCT = []
-    window = 7
-    for l in range(len(X)-window):
-        cov = np.cov(X[l:window+l],Y[l:window+l], bias=True)[0,1]
-        denominator = (np.std(X[l:window+l])*np.std(Y[l:window+l]))
-        if(denominator != 0):
-            PC = cov / denominator
-        else:
-            PC = 0
-        XYPCT = np.append(XYPCT,PC)
+sample_length = len(adj_close_prices[key_enum[0][1]])
 
-    XYPCT = np.array(XYPCT)
+window = 30
+step_size = 100
 
-    mean = np.nanmean(XYPCT)
-    return XYPCT, mean, (i,j)
+os.makedirs("snapshots", exist_ok=True)
 
+def pearson_correlation_window(i,j,t):
+    X = adj_close_prices[key_enum[i][1]][t:t+window]
+    Y = adj_close_prices[key_enum[j][1]][t:t+window]
+    if len(X) < window or len(Y) < window:
+        return 0, (i, j)
+    
+    cov = np.cov(X, Y, bias=True)[0, 1]
+    denom = np.std(X) * np.std(Y)
+    PC = cov / denom if denom != 0 else 0
 
-import time
+    return PC, (i,j)
 
-start_time = time.perf_counter()
-results = Parallel(n_jobs=-1, backend='loky')(delayed(pearson_correlation_window)(i, j) for i, j in pairs)
-end_time = time.perf_counter()
+def correlation_snapshot(t):
+    results = Parallel(n_jobs=-1, backend='loky')(delayed(pearson_correlation_window)(i, j, t) for i, j in pairs)
 
-time_delta = end_time - start_time
-print(f"time delta {time_delta}")
+    PCs, index_pairs = zip(*results)
 
-XYPCTs, means, index_pairs = zip(*results)
+    A = np.zeros(shape=(len(adj_close_prices),len(adj_close_prices)))
+    Aw = A.copy()
+    for pc, (i, j) in zip(PCs, index_pairs):
+        if pc >= 0.4:
+            Aw[i][j] = Aw[j][i] = pc
+            A[i][j] = A[j][i] = 1
 
-threashold = np.percentile(means, 50)
-print(f"threshold value {threashold}")
+    np.save(f"snapshots/{t/100}_A.npy", A)
+    np.save(f"snapshots/{t/100}_Aw.npy", Aw)
+    return t, np.count_nonzero(A) // 2
 
-A = np.zeros(shape=(len(open_prices),len(open_prices)))
+snapshots = []
+for t in tqdm(range(0, sample_length - window, step_size)):
+    snapshot = correlation_snapshot(t)
+    snapshots.append(snapshot)
 
-edges = 0
-for _, mean, (i, j) in zip(XYPCTs, means, index_pairs):
-    if mean >= threashold:
-        edges += 1
-        A[i][j] = mean
-        A[j][i] = mean
-
-print(f"tracked {edges} edges")
-np.save("stock_item_adj_matrix_small_weighted.npy", A)
+print("Completed snapshots:", snapshots)
